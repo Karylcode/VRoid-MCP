@@ -30,6 +30,7 @@ build/
 
 # Documentation is kept locally by request
 *.md
+!/README.md
 *.pdf
 *.docx
 *.html
