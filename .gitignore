@@ -1,0 +1,37 @@
+.venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+lab/
+
+# Local configuration, runtime copies and generated artifacts
+.env
+.env.*
+*.local.json
+environments/
+app/
+profile/
+saves/
+runs/
+reviews/
+test-evidence/
+dist/
+build/
+*.vroid
+*.vrm
+*.dll
+*.exe
+*.log
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# Documentation is kept locally by request
+*.md
+*.pdf
+*.docx
+*.html
+docs/
+文檔/

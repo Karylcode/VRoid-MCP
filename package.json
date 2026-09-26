@@ -1,0 +1,8 @@
+{
+  "name": "vroid-face-mcp-local-agent",
+  "version": "0.3.2",
+  "private": true,
+  "dependencies": {
+    "frida-il2cpp-bridge": "0.14.0"
+  }
+}

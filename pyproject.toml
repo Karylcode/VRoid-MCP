@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vroid-face-mcp-local"
+version = "0.3.2"
+description = "Native VRoid parameter MCP for character editing and photo preview"
+requires-python = ">=3.10"
+dependencies = ["frida==17.16.0", "mcp==1.30.0"]
+
+[project.scripts]
+vroid-face-mcp = "vroid_mcp.server:main"
+
+[tool.setuptools]
+packages = ["vroid_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
