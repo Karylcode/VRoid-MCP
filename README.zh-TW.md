@@ -93,3 +93,7 @@ npm ci
 - [疑難排解](docs/troubleshooting.zh-TW.md)
 - [開發與測試](docs/development.zh-TW.md)
 - [更新紀錄](CHANGELOG.zh-TW.md)
+
+## 授權
+
+MIT，詳見 [LICENSE](LICENSE)。本專案不包含 VRoid Studio，VRoid Studio 依它自己的使用條款。

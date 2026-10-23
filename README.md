@@ -93,3 +93,7 @@ More: [Troubleshooting](docs/troubleshooting.md).
 - [Troubleshooting](docs/troubleshooting.md)
 - [Development and tests](docs/development.md)
 - [Changelog](CHANGELOG.md)
+
+## License
+
+MIT. See [LICENSE](LICENSE). VRoid Studio is not included and is covered by its own terms.

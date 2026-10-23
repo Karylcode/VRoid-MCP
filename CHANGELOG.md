@@ -5,6 +5,7 @@
 ## Unreleased
 
 - Documentation: the README is now a short entry point; details moved to [docs/](docs/README.md).
+- License: the project is now under the [MIT License](LICENSE).
 
 ## 0.4.0 — 2026-10-23
 

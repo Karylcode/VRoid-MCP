@@ -5,6 +5,7 @@
 ## 尚未發布
 
 - 文件：README 改為簡短入口，細節移到 [docs/](docs/README.zh-TW.md)。
+- 授權：本專案改採 [MIT 授權](LICENSE)。
 
 ## 0.4.0 — 2026-10-23
 
