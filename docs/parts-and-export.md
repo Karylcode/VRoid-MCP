@@ -5,13 +5,13 @@
 ## Parts and custom items
 
 - **list_parts** lists every part (transferable group) the model is built from: id, type, resource_name, original_resource_name for custom parts, and custom/updated flags.
-- **replace_part(part_id)** replaces exactly one part, for example a single face shape without the rest of its face set. part_id is a `*.transferablegroup` ID, such as a built-in part ID from list_parts. The tool first looks the ID up in this VRoid's asset catalog and refuses IDs that are missing there, such as part IDs from files made with older VRoid versions, because VRoid's native loader crashes on them. Afterwards it confirms that the part is active; if not, it reports REPLACE_PART_FAILED and VRoid logs the native error in Player.log. Native history supports Undo. Relist parameters afterwards.
+- **replace_part(part_id)** replaces exactly one built-in part, for example a single face shape without the rest of its face set. part_id is a `*.transferablegroup` ID, such as a built-in part ID from list_parts. The tool first looks the ID up in this VRoid's asset catalog and refuses IDs that are missing there, such as part IDs from files made with older VRoid versions and closet custom items, because VRoid's native loader crashes on them. Afterwards it confirms that the part is active; if not, it reports REPLACE_PART_FAILED and VRoid logs the native error in Player.log. Native history supports Undo. Relist parameters afterwards.
 - **save_custom_items(types?)** saves worn parts that VRoid marks savable (custom or modified) as custom items, like VRoid's own "save as custom item". types limits it to part types such as `["Iris", "AllHair"]`. Files go to the custom_items folder of the controlled VRoid: the lab profile for the copy, your real closet when attached.
-- list_presets also lists closet custom items with custom=true; apply them with apply_preset. Use this route for closet custom items rather than replace_part.
+- list_presets also lists closet custom items with custom=true; apply them with apply_preset. replace_part does not accept them.
 
 ## Rebuilding an older character
 
-To rebuild an older character on the current VRoid version, match its parts by resource_name, save its custom or modified parts with save_custom_items, apply them on the new model, use replace_part for single parts, then copy the values and compare.
+To rebuild an older character on the current VRoid version, match its parts by resource_name, save its custom or modified parts with save_custom_items, apply them on the new model with apply_preset, use replace_part for single built-in parts, then copy the values and compare.
 
 ## VRM export
 

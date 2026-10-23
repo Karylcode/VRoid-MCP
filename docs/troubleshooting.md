@@ -21,6 +21,7 @@
 | Several VRoid windows are open; pass pid | Call attach_open_vroid again with one of the listed pids. |
 | The MCP copy is running: save_as first or pass discard_copy_unsaved=true | save_as if needed, then attach with discard_copy_unsaved=true. |
 | NO_MODEL | Your VRoid shows its start screen. Use open_start_model, or open a model in VRoid. |
+| EXPECTED_MODEL_REQUIRED | The call had no model_token. Call list_face_params and pass its model_token as expected_model. |
 | STALE_MODEL / MODEL_CHANGED_DURING_OPERATION | The model changed. List parameters again and use the new model_token. |
 | RETURN_TO_EDIT_MODE_FIRST | Call set_preview_mode(mode="edit"). |
 | PHOTO_MODE_REQUIRED | Call set_preview_mode(mode="photo") first. |
@@ -28,7 +29,7 @@
 | ATTACHED_VROID_DISCONNECTED | Call attach_open_vroid again, or detach_open_vroid. |
 | Native call timed out / PREVIOUS_CALL_UNCERTAIN | Do not retry the change. See [Behavior and limitations](limitations.md#behavior). |
 | Height did not converge within native range | The target is outside the model's reachable range. The original scale was restored. |
-| UNKNOWN_PART_ID | The ID is not in this VRoid's asset catalog. Use list_presets for built-in presets and closet custom items. |
+| UNKNOWN_PART_ID | The ID is not in this VRoid's asset catalog; replace_part takes built-in part IDs only. Use list_presets and apply_preset for built-in presets and closet custom items. |
 | VRM_META_NAME_REQUIRED / VRM_META_TITLE_REQUIRED | Set the model's VRM name (1.0) or title (0.x) in VRoid first. |
 | Refusing to overwrite an existing file | Choose a new filename. |
 | REPLACE_PART_FAILED / VRM_EXPORT_FAILED | Read VRoid's Player.log (see below). |

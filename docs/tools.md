@@ -4,7 +4,7 @@
 
 The server provides 42 tools. Parameters are listed as name=default; parameters without a default are required.
 
-- Tools that change the model take expected_model: the model_token from list_face_params (get_status and most list tools return it too). If the model changed since you listed it, the call is refused with STALE_MODEL; list again and use the new token.
+- Tools that change the model take expected_model: the model_token from list_face_params (get_status and most list tools return it too). If the model changed since you listed it, the call is refused with STALE_MODEL; list again and use the new token. An empty expected_model is refused with EXPECTED_MODEL_REQUIRED. Both checks run before anything is changed.
 - While the photo preview is active, editing tools are refused with RETURN_TO_EDIT_MODE_FIRST. set_parameters with domain="photo" is the exception.
 - Each native call has a 30-second limit. See [Behavior and limitations](limitations.md).
 
@@ -83,7 +83,7 @@ allow_out_of_ui_range: see [Usage](usage.md#values-outside-the-ui-range).
 | list_clothing_presets | category=None, offset=0, limit=100 | limit 1–200. Outfits, tops, bottoms, shoes and other clothing categories. |
 | apply_clothing_preset | expected_model, preset_id | Can replace conflicting garments; relist clothing sliders afterwards. |
 | list_parts | — | Parts (transferable groups): id, type, resource_name, original_resource_name, custom and updated flags. |
-| replace_part | expected_model, part_id | A `*.transferablegroup` ID. Refuses IDs missing from this VRoid's asset catalog. See [Parts](parts-and-export.md). |
+| replace_part | expected_model, part_id | A built-in `*.transferablegroup` ID. Refuses IDs missing from this VRoid's asset catalog, closet custom items included (use apply_preset for those). See [Parts](parts-and-export.md). |
 | save_custom_items | expected_model, types=None | Saves savable worn parts as custom items. Writes to your real closet when attached. |
 
 ## Hair structure and hair bones

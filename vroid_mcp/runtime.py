@@ -34,6 +34,13 @@ def review_folder(lab: pathlib.Path, capture_id: str) -> pathlib.Path:
     return folder
 
 
+def require_model_token(expected_model: str) -> str:
+    """Every write names the model it changes; an empty token must not mean 'any model'."""
+    if not isinstance(expected_model,str) or not expected_model:
+        raise ValueError('EXPECTED_MODEL_REQUIRED: pass the model_token from list_face_params')
+    return expected_model
+
+
 def save_destination(lab: pathlib.Path, filename: str, folder_name: str = 'saves', suffix: str = '.vroid') -> pathlib.Path:
     """A single filename in saves/ (or exports/), never an absolute path or alternate stream."""
     if not filename or any(ord(c)<32 or c in '\\/:<>"|?*' for c in filename) or filename.rstrip(' .') != filename:
@@ -221,6 +228,13 @@ class Runtime:
             self.uncertain=True
             raise RuntimeError('Native call timed out; result is uncertain and further calls are blocked')
 
+    async def _check_model(self, expected_model: str) -> None:
+        """First step of every write, before any native change: expected_model must name the open model."""
+        require_model_token(expected_model)
+        status=await self._call('status')
+        if status.get('model_token')!=expected_model:
+            raise ValueError('STALE_MODEL: list parameters again' if status.get('model_ready') else status.get('reason','MODEL_NOT_READY'))
+
     async def initialize(self, variant: str = 'F00', model_file: pathlib.Path | None = None) -> dict:
         async with self.lock:
             deadline=time.monotonic()+40
@@ -299,6 +313,7 @@ class Runtime:
     async def set_params(self, area: str, expected_model: str, changes: list[dict], allow_out_of_ui_range: bool = False) -> dict:
         if area not in ('face','body','clothing'):raise ValueError('Unsupported parameter area')
         async with self.lock:
+            await self._check_model(expected_model)
             result=await self._call('set_'+area+'_params',{'expected_model':expected_model,'changes':changes,
                                                           'allow_out_of_ui_range':allow_out_of_ui_range})
             settled=await self._settle(result['frame'])
@@ -314,6 +329,7 @@ class Runtime:
     async def apply_preset(self,area:str,expected_model:str,preset_id:str) -> dict:
         if area not in ('face','body','hair','clothing'):raise ValueError('Unsupported preset area')
         async with self.lock:
+            await self._check_model(expected_model)
             result=await self._call('apply_preset',{'area':area,'expected_model':expected_model,'preset_id':preset_id})
             await self._settle(result['frame'])
             before=result.pop('before_groups',None)
@@ -339,6 +355,7 @@ class Runtime:
 
     async def parameter_call(self,operation: str,args:dict|None=None,mutating:bool=False)->dict:
         async with self.lock:
+            if mutating:await self._check_model((args or {}).get('expected_model'))
             await self._settle()
             result=await self._call(operation,args or {})
             if mutating:
@@ -352,6 +369,7 @@ class Runtime:
         if not math.isfinite(centimeters) or not 20<=centimeters<=400:raise ValueError('Height must be 20..400 cm; native model range can be narrower')
         if not .01<=tolerance_cm<=.5:raise ValueError('Tolerance must be .01...5 cm')
         async with self.lock:
+            await self._check_model(expected_model)
             await self._settle()
             args={'expected_model':expected_model}
             body=await self._call('list_body_params',args)
@@ -383,6 +401,7 @@ class Runtime:
     async def history(self, method: str, expected_model: str, steps: int = 1) -> dict:
         if method not in ('undo','redo') or not 1<=steps<=32:raise ValueError('Invalid history operation')
         async with self.lock:
+            await self._check_model(expected_model)
             for _ in range(steps):
                 result=await self._call(method,{'expected_model':expected_model})
                 await self._task(result);await self._settle(result['frame'])
@@ -472,6 +491,7 @@ class Runtime:
         if self.mode=='attached':
             raise ValueError('Attached to your own VRoid: save there with Ctrl+S; save_as would re-point its file path')
         async with self.lock:
+            await self._check_model(expected_model)
             destination=save_destination(self.lab,filename)
             staging=destination.parent/('stage-'+uuid.uuid4().hex+'.vroid')
             await self._settle()
@@ -508,6 +528,7 @@ class Runtime:
     async def replace_part(self, expected_model: str, part_id: str) -> dict:
         """Swap one transferable group by id, wait for the command to finish, then confirm the part is active."""
         async with self.lock:
+            await self._check_model(expected_model)
             await self._settle()
             requested=await self._call('replace_part',{'expected_model':expected_model,'part_id':part_id})
             await asyncio.sleep(.3)
@@ -523,9 +544,10 @@ class Runtime:
     async def export_vrm(self, expected_model: str, filename: str, version: int = 1) -> dict:
         """Export through VRoid's exporter into lab/exports; enters and leaves the export screen if needed."""
         if version not in (0,1):raise ValueError('version must be 0 (VRM 0.x) or 1 (VRM 1.0)')
-        destination=save_destination(self.lab,filename,'exports','.vrm')
         args={'expected_model':expected_model}
         async with self.lock:
+            await self._check_model(expected_model)
+            destination=save_destination(self.lab,filename,'exports','.vrm')
             await self._settle()
             state=await self._call('vrm_export_state',args)
             entered=not state['export_screen']

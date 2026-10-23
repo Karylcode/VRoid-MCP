@@ -4,7 +4,7 @@
 
 伺服器提供 42 個工具。參數寫成「名稱=預設值」；沒有預設值的參數是必填。
 
-- 會修改模型的工具要帶 expected_model，也就是 list_face_params 回傳的 model_token（get_status 與多數列舉工具也會回傳）。列出參數後模型若已改變，呼叫會被拒絕並回報 STALE_MODEL；請重新列出並改用新 token。
+- 會修改模型的工具要帶 expected_model，也就是 list_face_params 回傳的 model_token（get_status 與多數列舉工具也會回傳）。列出參數後模型若已改變，呼叫會被拒絕並回報 STALE_MODEL；請重新列出並改用新 token。expected_model 留空會被拒絕並回報 EXPECTED_MODEL_REQUIRED。兩種檢查都在任何修改之前進行。
 - 拍攝預覽開著時，編輯工具會被拒絕並回報 RETURN_TO_EDIT_MODE_FIRST。例外是 domain="photo" 的 set_parameters。
 - 每次原生呼叫上限 30 秒。請看[行為與限制](limitations.zh-TW.md)。
 
@@ -83,7 +83,7 @@ allow_out_of_ui_range：請看[使用方式](usage.zh-TW.md#超出-ui-範圍的�
 | list_clothing_presets | category=None, offset=0, limit=100 | limit 1–200。套裝、上衣、下著、鞋子與其他服裝分類。 |
 | apply_clothing_preset | expected_model, preset_id | 可能替換衝突的衣物；之後請重新列出衣物滑桿。 |
 | list_parts | — | 部件（transferable group）：id、type、resource_name、original_resource_name、custom 與 updated 旗標。 |
-| replace_part | expected_model, part_id | `*.transferablegroup` 格式的 ID。這個 VRoid 資源庫沒有的 ID 會被拒絕。請看[部件](parts-and-export.zh-TW.md)。 |
+| replace_part | expected_model, part_id | 內建部件的 `*.transferablegroup` ID。這個 VRoid 資源庫沒有的 ID 會被拒絕，衣櫃自訂物件也一樣（請改用 apply_preset）。請看[部件](parts-and-export.zh-TW.md)。 |
 | save_custom_items | expected_model, types=None | 把可存的穿戴部件存成自訂物件。接上時寫進你真正的衣櫃。 |
 
 ## 髮型結構與髮骨

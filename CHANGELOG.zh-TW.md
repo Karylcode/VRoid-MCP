@@ -6,6 +6,8 @@
 
 - 文件：README 改為簡短入口，細節移到 [docs/](docs/README.zh-TW.md)。
 - 授權：本專案改採 [MIT 授權](LICENSE)。
+- 修正：所有寫入工具在任何原生呼叫之前，會先拒絕空的 expected_model（回報 EXPECTED_MODEL_REQUIRED），並先比對 token 與目前開著的模型。之前 export_vrm(expected_model="") 不檢查模型就匯出，save_custom_items 帶空 token 會先存檔、事後才報錯。screenshot 現在也會拒絕空 token。
+- 修正：replace_part 的說明寫衣櫃自訂物件也能用，其實只接受內建部件 ID；衣櫃自訂物件請用 list_presets 加 apply_preset。
 
 ## 0.4.0 — 2026-10-23
 

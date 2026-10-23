@@ -11,7 +11,7 @@ Unit tests do not start VRoid:
 & .\.venv\Scripts\python.exe -m pytest -q
 ~~~
 
-pytest collects only `tests/test_*.py`: 27 test cases for the save/export filename policy and the capture/review input checks. They import vroid_mcp.runtime, so install requirements.txt first.
+pytest collects only `tests/test_*.py`: 56 test cases for the save/export filename policy, the capture/review input checks and the expected_model check on write tools. They import vroid_mcp.runtime, so install requirements.txt first.
 
 ## Live acceptance scripts
 

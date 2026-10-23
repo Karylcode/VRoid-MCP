@@ -147,9 +147,10 @@ def create_server(lab: Path, variant: str, model_file: Path | None = None) -> Fa
 
     @ready_tool(annotations=edit)
     async def replace_part(expected_model: str, part_id: str) -> dict:
-        """Replace exactly one part by transferable group id from list_parts, e.g. one FaceShape without
-        the rest of its face set. Works for built-in ids and custom items registered in this VRoid's closet.
-        Native history supports Undo. Relist parameters afterwards.
+        """Replace exactly one built-in part by transferable group id from list_parts, e.g. one FaceShape
+        without the rest of its face set. Ids missing from this VRoid's asset catalog (closet custom items,
+        parts from older VRoid files) are refused because the native loader crashes on them; apply closet
+        custom items with list_presets and apply_preset. Native history supports Undo. Relist parameters afterwards.
         """
         return await runtime.replace_part(expected_model,part_id)
 

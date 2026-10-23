@@ -11,7 +11,7 @@
 & .\.venv\Scripts\python.exe -m pytest -q
 ~~~
 
-pytest 只會收集 `tests/test_*.py`：共 27 個測試案例，檢查存檔／匯出檔名規則與截圖檢查的輸入。它們會匯入 vroid_mcp.runtime，所以請先安裝 requirements.txt。
+pytest 只會收集 `tests/test_*.py`：共 56 個測試案例，檢查存檔／匯出檔名規則、截圖檢查的輸入，以及寫入工具的 expected_model 檢查。它們會匯入 vroid_mcp.runtime，所以請先安裝 requirements.txt。
 
 ## 真實驗收腳本
 

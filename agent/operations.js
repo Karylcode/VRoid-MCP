@@ -27,7 +27,8 @@ globalThis.vroid = (() => {
             engineAddress = engine.handle.toString(); generation++;
         }
         const token = session + ':' + generation;
-        if (expected && expected !== token) throw Error('STALE_MODEL: list parameters again');
+        // Reads pass no token at all; an empty token is refused, never treated as "any model".
+        if (expected != null && expected !== token) throw Error(expected ? 'STALE_MODEL: list parameters again' : 'EXPECTED_MODEL_REQUIRED');
         return {main:m, file, engine, root, token, face:root.method('get_FaceEditor').invoke(),
             context:engine.method('get_Context').invoke()};
     }
@@ -352,7 +353,7 @@ globalThis.vroid = (() => {
         return partCallbacks;
     }
     function replacePart(args) {
-        // Native Context.LoadAndReplaceTransferableGroup: swaps exactly one part by id (built-in or registered custom item).
+        // Native Context.LoadAndReplaceTransferableGroup: swaps exactly one built-in part by id.
         if(!args.expected_model)throw Error('EXPECTED_MODEL_REQUIRED');
         if(typeof args.part_id!=='string'||!args.part_id.endsWith('.transferablegroup'))throw Error('PART_ID_REQUIRED: a *.transferablegroup id');
         const m=model(args.expected_model);
@@ -361,7 +362,7 @@ globalThis.vroid = (() => {
         const registry=Il2Cpp.gc.choose(cls('VRoid.Studio','VRoid.Studio.ModelPresetsSelector.CustomItemRegistry'))[0];
         if(!registry)throw Error('ASSET_CATALOG_NOT_FOUND');
         if(!registry.field('_assetCatalog').value.method('ContainsId').invoke(Il2Cpp.string(args.part_id)))
-            throw Error('UNKNOWN_PART_ID: not in this VRoid\'s asset catalog; use list_presets (built-in or custom item) for it');
+            throw Error('UNKNOWN_PART_ID: not in this VRoid\'s asset catalog; for closet custom items use list_presets and apply_preset');
         const {ok,fail}=managedCallbacks();
         const preserveMaterial=Memory.alloc(1);preserveMaterial.writeU8(0);
         invokeManaged(m.context,'LoadAndReplaceTransferableGroup',[Il2Cpp.string(args.part_id).handle,ok.handle,fail.handle,preserveMaterial]);
@@ -381,6 +382,7 @@ globalThis.vroid = (() => {
             ready:!!settings&&!settings.handle.isNull()&&!b.field('_isBlockingUpdateExportPreview').value};
     }
     function enterVrmExport(args) {
+        if(!args.expected_model)throw Error('EXPECTED_MODEL_REQUIRED');
         const m=model(args.expected_model);invokeManaged(m.root,'EnterToVRMExport');
         return {model_token:m.token,frame:state.frame};
     }
@@ -434,6 +436,7 @@ globalThis.vroid = (() => {
         return {list,action,handles:[retain(list),retain(action)]};
     }
     function startVrmExport(args) {
+        if(!args.expected_model)throw Error('EXPECTED_MODEL_REQUIRED');
         if(vrmJob)throw Error('VRM_EXPORT_BUSY');
         if(![0,1].includes(args.version)||typeof args.path!=='string'||!/\.vrm$/i.test(args.path))throw Error('VRM_EXPORT_ARGS: version 0|1 and a .vrm path');
         const m=model(args.expected_model),b=booth(m),settings=b.method('get_ExportSettings').invoke();
@@ -460,6 +463,7 @@ globalThis.vroid = (() => {
     }
     function saveCustomItems(args) {
         // VRoid's own "save as custom item" for every worn part it marks savable; files go to the profile's custom_items.
+        if(!args.expected_model)throw Error('EXPECTED_MODEL_REQUIRED');
         const m=model(args.expected_model);
         const c=cls('VRoid.Studio','VRoid.Studio.ModelPresetsSelector.TemporaryCustomItemViewModel'),seen=new Set(),saved=[];
         for(const vm of Il2Cpp.gc.choose(c).filter(o=>o.class.handle.equals(c.handle))){

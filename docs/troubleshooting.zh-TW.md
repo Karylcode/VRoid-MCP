@@ -21,6 +21,7 @@
 | Several VRoid windows are open; pass pid | 從列出的 pid 選一個，再呼叫一次 attach_open_vroid。 |
 | The MCP copy is running: save_as first or pass discard_copy_unsaved=true | 需要的話先 save_as，再帶 discard_copy_unsaved=true 接上。 |
 | NO_MODEL | 你的 VRoid 停在開始畫面。請用 open_start_model，或在 VRoid 開啟模型。 |
+| EXPECTED_MODEL_REQUIRED | 呼叫沒有帶 model_token。請呼叫 list_face_params，把它的 model_token 當成 expected_model 帶入。 |
 | STALE_MODEL／MODEL_CHANGED_DURING_OPERATION | 模型已改變。請重新列出參數，改用新的 model_token。 |
 | RETURN_TO_EDIT_MODE_FIRST | 呼叫 set_preview_mode(mode="edit")。 |
 | PHOTO_MODE_REQUIRED | 先呼叫 set_preview_mode(mode="photo")。 |
@@ -28,7 +29,7 @@
 | ATTACHED_VROID_DISCONNECTED | 再呼叫一次 attach_open_vroid，或呼叫 detach_open_vroid。 |
 | Native call timed out／PREVIOUS_CALL_UNCERTAIN | 不要重試那筆修改。請看[行為與限制](limitations.zh-TW.md#行為)。 |
 | Height did not converge within native range | 目標超出這個模型能到的範圍。原本的大小已還原。 |
-| UNKNOWN_PART_ID | 這個 VRoid 的資源庫沒有這個 ID。內建預設與衣櫃自訂物件請用 list_presets。 |
+| UNKNOWN_PART_ID | 這個 VRoid 的資源庫沒有這個 ID；replace_part 只接受內建部件 ID。內建預設與衣櫃自訂物件請用 list_presets 加 apply_preset。 |
 | VRM_META_NAME_REQUIRED／VRM_META_TITLE_REQUIRED | 先在 VRoid 設定模型的 VRM 名稱（1.0）或標題（0.x）。 |
 | Refusing to overwrite an existing file | 換一個新檔名。 |
 | REPLACE_PART_FAILED／VRM_EXPORT_FAILED | 查看 VRoid 的 Player.log（見下方）。 |

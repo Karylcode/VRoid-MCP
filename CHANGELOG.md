@@ -6,6 +6,8 @@
 
 - Documentation: the README is now a short entry point; details moved to [docs/](docs/README.md).
 - License: the project is now under the [MIT License](LICENSE).
+- Fixed: every write tool refuses an empty expected_model with EXPECTED_MODEL_REQUIRED before any native call, and checks the token against the open model first. Before, export_vrm(expected_model="") exported without a model check and save_custom_items with an empty token saved first and failed afterwards. screenshot also refuses an empty token now.
+- Fixed: the replace_part description said closet custom items work. It takes built-in part IDs only; apply closet custom items with list_presets and apply_preset.
 
 ## 0.4.0 — 2026-10-23
 
