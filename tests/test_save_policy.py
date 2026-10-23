@@ -20,3 +20,9 @@ def test_existing_contents_are_preserved(tmp_path):
 
 def test_new_file_is_confined_to_saves(tmp_path):
     assert save_destination(tmp_path,'測試角色.vroid')==tmp_path/'saves'/'測試角色.vroid'
+
+
+def test_vrm_export_is_confined_to_exports(tmp_path):
+    assert save_destination(tmp_path,'character.vrm','exports','.vrm')==tmp_path/'exports'/'character.vrm'
+    for name in ['character.vroid','../character.vrm','.vrm']:
+        with pytest.raises(ValueError):save_destination(tmp_path,name,'exports','.vrm')

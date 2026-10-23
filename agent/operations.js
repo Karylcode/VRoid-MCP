@@ -15,7 +15,8 @@ globalThis.vroid = (() => {
     function model(expected) {
         const m = main();
         const file = m.field('_mainModel').value.field('currentFile').value;
-        if (file.handle.isNull()) throw Error('NO_MODEL: initialize a disposable model first');
+        if (file.handle.isNull()) throw Error(ATTACHED ? 'NO_MODEL: VRoid shows its start screen; open_start_model or open one there'
+            : 'NO_MODEL: initialize a disposable model first');
         const engine = file.field('engine').value;
         if (engine.handle.isNull() || engine.method('get_Disposed').invoke()) throw Error('MODEL_DISPOSED');
         const p = state.refs['VRoid.Studio.EditRootScreen.ViewModel'];
@@ -138,7 +139,12 @@ globalThis.vroid = (() => {
             const e=map.get(change.id);if(!e)throw Error('UNKNOWN_PARAMETER: '+change.id);
             if(seen.has(e.canonical))throw Error('DUPLICATE_PARAMETER_OR_ALIAS: '+change.id);seen.add(e.canonical);
             const d=details(e),v=change.value;
-            if(typeof v!=='number'||!Number.isFinite(v)||v<d.min||v>d.max)throw Error('OUT_OF_RANGE: '+change.id+' ['+d.min+','+d.max+']');
+            if(typeof v!=='number'||!Number.isFinite(v))throw Error('INVALID_NUMBER: '+change.id);
+            if(v<d.min||v>d.max){
+                // Files from older VRoid versions can hold values the sliders cannot reach (e.g. -0.1 on a 0..1 slider).
+                const span=d.max-d.min;
+                if(!args.allow_out_of_ui_range||v<d.min-span||v>d.max+span)throw Error('OUT_OF_RANGE: '+change.id+' ['+d.min+','+d.max+']');
+            }
             if(!d.editable)throw Error('PARAMETER_NOT_EDITABLE: '+change.id);
             return {e,before:d.value,value:v};
         });
@@ -154,6 +160,12 @@ globalThis.vroid = (() => {
         }
         return {model_token:m.token,ok:true,applied,frame:state.frame||0,history_policy:'native VRoid history; a batch may require multiple undo steps'};
     }
+    function enumerate(collection){
+        const out=[],e=collection.method('GetEnumerator').invoke();
+        try{while(e.method('MoveNext').invoke())out.push(e.method('get_Current').invoke());}
+        finally{if(e.tryMethod('Dispose'))e.method('Dispose').invoke();}
+        return out;
+    }
     function presetEntries(m,area){
         if(!['face','body','hair','clothing'].includes(area))throw Error('UNSUPPORTED_PRESET_AREA');
         const result=[],clears=[];
@@ -163,12 +175,25 @@ globalThis.vroid = (() => {
             if(!pc||pc.handle.isNull())continue;
             const key=text(category.method('get_TranslationKey').invoke()).split('.').pop();
             const name=text(category.method('get_Name').invoke());
-            const options=pc.method('get_PresetOptions').invoke(),count=options.method('get_Count').invoke();
-            for(let i=0;i<count;i++){
-                const p=options.method('get_Item').invoke(i);
+            const options=[...enumerate(pc.method('get_PresetOptions').invoke())];
+            if(pc.tryMethod('get_CustomItemOptions')){
+                // Closet items live in a separate collection that VRoid builds when the category is first shown.
+                let custom=pc.method('get_CustomItemOptions').invoke();
+                if(custom.handle.isNull()){invokeManaged(selector(m,area),'set_SelectedCategory',[category.handle]);custom=pc.method('get_CustomItemOptions').invoke();}
+                if(!custom.handle.isNull())options.push(...enumerate(custom));
+            }
+            for(const p of options){
                 if(p.class.name==='ClearOptionViewModel'){
                     clears.push({p,id:area+'/'+key+'/none',category:key,category_name:name,label:name+' / None',
                         resource_name:null,clear:true,owned:true,selected:null});continue;
+                }
+                if(p.class.name==='CustomItemOptionViewModel'){
+                    // Items in this VRoid's closet (custom_items); selected the same way as built-in presets.
+                    const fm=p.field('_model').value,id=text(fm.method('get_TransferableGroupId').invoke());
+                    result.push({p,id:area+'/'+key+'/'+id,category:key,category_name:name,label:name+' / custom item',
+                        resource_name:text(fm.method('get_TransferableGroupResourceName').invoke()),custom:true,
+                        file:text(fm.method('get_FilePath').invoke()),owned:true,selected:p.method('get_IsSelected').invoke()});
+                    continue;
                 }
                 if(p.class.name!=='PresetOptionViewModel')continue;
                 const pm=p.field('_model').value,id=text(p.method('get_TransferableGroupId').invoke());
@@ -266,6 +291,188 @@ globalThis.vroid = (() => {
         dontSetPath.writeU8(1);fromXRoid.writeU8(0);
         return rememberTask(invokeManaged(main(),'ImportFileAndMoveToEditRoot',[path.handle,dontSetPath,fromXRoid]));
     }
+    function startScreen() {
+        const c=cls('VRoid.Studio','VRoid.Studio.StartScreen.ViewModel');
+        const live=Il2Cpp.gc.choose(c).filter(o=>o.class.handle.equals(c.handle)&&!o.field('_disposed').value);
+        if(live.length!==1)throw Error('START_SCREEN_NOT_FOUND: '+live.length);
+        return live[0];
+    }
+    function startItems() {
+        const screen=startScreen(),out=[];
+        for(const [group,getter] of [['recent','get_ModelItemDataSources'],['sample','get_SampleModelItemDataSources'],['old','get_OldModelItemDataSources']]){
+            const items=screen.method(getter).invoke();
+            for(let i=0,n=items.method('get_Count').invoke();i<n;i++){
+                const item=items.method('get_Item').invoke(i);
+                if(item.handle.isNull()||item.class.type.name!=='VRoid.Studio.StartScreen.View.ModelSelectItemViewModel')continue;
+                out.push({item,group,name:text(item.method('get_Name').invoke()),
+                    path:text(item.method('get_Path').invoke())||null,downloaded:item.field('isDownloaded').value});
+            }
+        }
+        return out;
+    }
+    function openStartModel(args) {
+        // Same as clicking the card on the start screen; never replaces a model that is already open.
+        if(!main().field('_mainModel').value.field('currentFile').value.handle.isNull())
+            throw Error('MODEL_ALREADY_OPEN: save or close it in VRoid first');
+        const matches=startItems().filter(e=>e.name===args.name&&(!args.group||e.group===args.group));
+        if(matches.length!==1)throw Error((matches.length?'AMBIGUOUS_START_MODEL: pass group':'UNKNOWN_START_MODEL')+': '+args.name);
+        invokeManaged(matches[0].item,'OnClickItemDelegate');
+        return {requested:true,name:args.name,group:matches[0].group};
+    }
+    function listParts(args) {
+        // Every active transferable group: what the model is built from, by native id and resource.
+        const m=model(args.expected_model),parts=[];
+        const it=m.context.method('get_ActiveModel').invoke().method('GetActiveTransferableGroups').invoke()
+            .method('get_Values').invoke().method('GetEnumerator').invoke();
+        try{while(it.method('MoveNext').invoke()){
+            const g=it.method('get_Current').invoke(),type=text(g.method('get_Type').invoke()),res=text(g.method('get_ResourceName').invoke());
+            parts.push({id:text(g.method('get_Id').invoke()),type:type.split('.').pop(),group_type:type,resource_name:res,
+                original_resource_name:text(g.method('get_OriginalResourceName').invoke()),custom:!!res&&res.startsWith('user/'),
+                updated:g.method('get_UpdatedSinceLastRevision').invoke()});
+        }}finally{it.method('Dispose').invoke();}
+        return {model_token:m.token,parts:parts.sort((a,b)=>a.type.localeCompare(b.type)||a.id.localeCompare(b.id))};
+    }
+    let partCallbacks=null;
+    function managedCallbacks() {
+        // Frida-made delegates crash when VRoid invokes them from its async loader, so build real managed
+        // delegates over harmless corlib/Unity methods: success is a no-op, errors go to Player.log.
+        if(partCallbacks)return partCallbacks;
+        const typeOf=c=>c.type.object,typeClass=Il2Cpp.corlib.class('System.Type');
+        const create=(delegateClass,methodInfo)=>Il2Cpp.corlib.class('System.Delegate').method('CreateDelegate')
+            .overload('System.Type','System.Reflection.MethodInfo').invoke(typeOf(delegateClass),methodInfo);
+        const thread=typeOf(Il2Cpp.corlib.class('System.Threading.Thread'));
+        const noop=thread.method('GetMethod').overload('System.String','System.Type[]')
+            .invoke(Il2Cpp.string('MemoryBarrier'),Il2Cpp.array(typeClass,0));
+        const exception=Il2Cpp.corlib.class('System.Exception');
+        const logException=typeOf(core('Debug')).method('GetMethod').overload('System.String','System.Type[]')
+            .invoke(Il2Cpp.string('LogException'),Il2Cpp.array(typeClass,[typeOf(exception)]));
+        const ok=create(Il2Cpp.corlib.class('System.Action'),noop);
+        const fail=create(Il2Cpp.corlib.class('System.Action`1').inflate(exception),logException);
+        partCallbacks={ok,fail,handles:[retain(ok),retain(fail)]};
+        return partCallbacks;
+    }
+    function replacePart(args) {
+        // Native Context.LoadAndReplaceTransferableGroup: swaps exactly one part by id (built-in or registered custom item).
+        if(!args.expected_model)throw Error('EXPECTED_MODEL_REQUIRED');
+        if(typeof args.part_id!=='string'||!args.part_id.endsWith('.transferablegroup'))throw Error('PART_ID_REQUIRED: a *.transferablegroup id');
+        const m=model(args.expected_model);
+        // An id missing from the asset catalog (e.g. from a file made with an older VRoid, or a custom
+        // item id) makes the native loader throw outside any handler and VRoid crashes: refuse it here.
+        const registry=Il2Cpp.gc.choose(cls('VRoid.Studio','VRoid.Studio.ModelPresetsSelector.CustomItemRegistry'))[0];
+        if(!registry)throw Error('ASSET_CATALOG_NOT_FOUND');
+        if(!registry.field('_assetCatalog').value.method('ContainsId').invoke(Il2Cpp.string(args.part_id)))
+            throw Error('UNKNOWN_PART_ID: not in this VRoid\'s asset catalog; use list_presets (built-in or custom item) for it');
+        const {ok,fail}=managedCallbacks();
+        const preserveMaterial=Memory.alloc(1);preserveMaterial.writeU8(0);
+        invokeManaged(m.context,'LoadAndReplaceTransferableGroup',[Il2Cpp.string(args.part_id).handle,ok.handle,fail.handle,preserveMaterial]);
+        return {requested:true,part_id:args.part_id,frame:state.frame};
+    }
+    // VRM export through VRoid's own photo-booth exporter, given a path instead of the save dialog.
+    let vrmJob=null;
+    const findClass=name=>{for(const a of Il2Cpp.domain.assemblies){const c=a.image.tryClass(name);if(c)return c;}throw Error('CLASS_NOT_FOUND: '+name);};
+    const flag=v=>{const b=Memory.alloc(1);b.writeU8(v?1:0);return b;};
+    const booth=m=>m.root.field('obsoleteLegacyPhotoBoothViewModel').value;
+    const screenNav=m=>m.main.method('get_GlobalBus').invoke().method('get_ScreenNavigation').invoke();
+    const EXPORT_SCREEN='VRoid.Studio.VRMExportScreen.ViewModel';
+    function vrmExportState(args) {
+        const m=model(args.expected_model),b=booth(m),screen=screenNav(m).method('get_ActiveScreen').invoke().class.type.name;
+        const settings=b.method('get_IsActive').invoke()?b.method('get_ExportSettings').invoke():null;
+        return {model_token:m.token,export_screen:screen===EXPORT_SCREEN,busy:!!vrmJob,frame:state.frame,
+            ready:!!settings&&!settings.handle.isNull()&&!b.field('_isBlockingUpdateExportPreview').value};
+    }
+    function enterVrmExport(args) {
+        const m=model(args.expected_model);invokeManaged(m.root,'EnterToVRMExport');
+        return {model_token:m.token,frame:state.frame};
+    }
+    function leaveVrmExport(args) {
+        const m=model(args.expected_model),nav=screenNav(m),screen=nav.method('get_ActiveScreen').invoke();
+        if(screen.class.type.name===EXPORT_SCREEN)invokeManaged(nav,'Pop',[screen.handle,flag(false)]);
+        return {model_token:m.token,frame:state.frame};
+    }
+    function stringList(value) {
+        const list=Il2Cpp.corlib.class('System.Collections.Generic.List`1').inflate(Il2Cpp.corlib.class('System.String')).new();
+        for(const s of String(value||'').split(/\s*,\s*/).filter(Boolean))list.method('Add').invoke(Il2Cpp.string(s));
+        return list;
+    }
+    function vrmMeta(m,version,dialogMeta) {
+        // The settings' meta objects stay empty until the dialog fills them; build from the model's stored export meta.
+        const app=m.context.method('get_ActiveModel').invoke().method('get_AppState').invoke();
+        const src=app.method(version===0?'get_Vrm0Export':'get_Vrm1Export').invoke(),get=n=>src.field('<'+n+'>k__BackingField').value;
+        const str=n=>Il2Cpp.string(text(get(n))||'');
+        if(version===0){
+            const meta=findClass('VRM.glTF_VRM_Meta').new();
+            for(const [k,n] of [['title','Title'],['version','Version'],['author','Author'],['contactInformation','ContactInformation'],
+                ['reference','Reference'],['otherPermissionUrl','OtherPermissionUrl'],['otherLicenseUrl','OtherLicenseUrl']])meta.field(k).value=str(n);
+            for(const [k,n] of [['allowedUserName','AllowedUserName'],['violentUssageName','ViolentUssageName'],['sexualUssageName','SexualUssageName'],
+                ['commercialUssageName','CommercialUssageName'],['licenseName','LicenseName']])meta.field(k).value=Il2Cpp.string(get(n).toString());
+            meta.field('texture').value=dialogMeta.handle.isNull()?-1:dialogMeta.field('texture').value;
+            if(!text(meta.field('title').value))throw Error('VRM_META_TITLE_REQUIRED: set the model\'s VRM title in VRoid first');
+            return meta;
+        }
+        const meta=findClass('UniVRM10.VRM10ObjectMeta').new();
+        for(const n of ['Name','Version','CopyrightInformation','ContactInformation','ThirdPartyLicenses','OtherLicenseUrl'])meta.field(n).value=str(n);
+        meta.field('Authors').value=stringList(text(get('Authors')));meta.field('References').value=stringList(text(get('References')));
+        for(const n of ['AvatarPermission','ViolentUsage','SexualUsage','CommercialUsage','PoliticalOrReligiousUsage','AntisocialOrHateUsage',
+            'CreditNotation','Redistribution','Modification'])meta.field(n).value=get(n);
+        if(!dialogMeta.handle.isNull()&&!dialogMeta.field('Thumbnail').value.handle.isNull())meta.field('Thumbnail').value=dialogMeta.field('Thumbnail').value;
+        if(!text(meta.field('Name').value))throw Error('VRM_META_NAME_REQUIRED: set the model\'s VRM name in VRoid first');
+        return meta;
+    }
+    function managedSignal() {
+        // Action bound to ManualResetEventSlim.Set: a real managed delegate whose firing can be polled.
+        const c=Il2Cpp.corlib.class('System.Threading.ManualResetEventSlim'),event=c.new();
+        const set=c.type.object.method('GetMethod').overload('System.String','System.Type[]').invoke(Il2Cpp.string('Set'),Il2Cpp.array(Il2Cpp.corlib.class('System.Type'),0));
+        const action=Il2Cpp.corlib.class('System.Delegate').method('CreateDelegate').overload('System.Type','System.Object','System.Reflection.MethodInfo')
+            .invoke(Il2Cpp.corlib.class('System.Action').type.object,event,set);
+        return {event,action,handles:[retain(event),retain(action)]};
+    }
+    function progressLog() {
+        const dbl=Il2Cpp.corlib.class('System.Double'),listClass=Il2Cpp.corlib.class('System.Collections.Generic.List`1').inflate(dbl),list=listClass.new();
+        const add=listClass.type.object.method('GetMethod').overload('System.String').invoke(Il2Cpp.string('Add'));
+        const action=Il2Cpp.corlib.class('System.Delegate').method('CreateDelegate').overload('System.Type','System.Object','System.Reflection.MethodInfo')
+            .invoke(Il2Cpp.corlib.class('System.Action`1').inflate(dbl).type.object,list,add);
+        return {list,action,handles:[retain(list),retain(action)]};
+    }
+    function startVrmExport(args) {
+        if(vrmJob)throw Error('VRM_EXPORT_BUSY');
+        if(![0,1].includes(args.version)||typeof args.path!=='string'||!/\.vrm$/i.test(args.path))throw Error('VRM_EXPORT_ARGS: version 0|1 and a .vrm path');
+        const m=model(args.expected_model),b=booth(m),settings=b.method('get_ExportSettings').invoke();
+        if(settings.handle.isNull())throw Error('VRM_EXPORT_NOT_READY: enter the export screen first');
+        const meta=vrmMeta(m,args.version,settings.method(args.version===0?'get_VRM0MetaData':'get_VRM10MetaData').invoke());
+        const ok=managedSignal(),fail=managedSignal(),progress=progressLog();
+        const hair=args.hair_combination??settings.field('isEnableHairCombination').value;
+        const reduction=findClass('VRoidStudio.PhotoBooth.MaterialReductionMode').field('None').value;
+        const routine=b.method(args.version===0?'ExportVRM0':'ExportVRM1').invoke(Il2Cpp.string(args.path),meta,!!hair,false,reduction,false,ok.action,fail.action,progress.action);
+        // The view model's coroutines need a MonoBehaviour host; a temporary GameObject keeps VRoid's UI untouched.
+        const go=core('GameObject').alloc();go.method('.ctor',1).invoke(Il2Cpp.string('VRoid MCP VRM export'));
+        go.method('AddComponent',1).invoke(findClass('UnityEngine.UI.LayoutElement').type.object).method('StartCoroutine').overload('System.Collections.IEnumerator').invoke(routine);
+        vrmJob={ok,fail,progress,go,handles:[retain(go),retain(meta),retain(routine)]};
+        return {started:true,version:args.version,path:args.path,hair_combination:!!hair};
+    }
+    function vrmExportStatus() {
+        if(!vrmJob)return {running:false};
+        const done=vrmJob.ok.event.method('get_IsSet').invoke(),failed=vrmJob.fail.event.method('get_IsSet').invoke();
+        const n=vrmJob.progress.list.method('get_Count').invoke(),progress=n?vrmJob.progress.list.method('get_Item').invoke(n-1):0;
+        if(!done&&!failed)return {running:true,progress};
+        core('Object').method('Destroy',1).invoke(vrmJob.go);
+        [...vrmJob.ok.handles,...vrmJob.fail.handles,...vrmJob.progress.handles,...vrmJob.handles].forEach(h=>h.free());vrmJob=null;
+        return {running:false,done,failed,progress};
+    }
+    function saveCustomItems(args) {
+        // VRoid's own "save as custom item" for every worn part it marks savable; files go to the profile's custom_items.
+        const m=model(args.expected_model);
+        const c=cls('VRoid.Studio','VRoid.Studio.ModelPresetsSelector.TemporaryCustomItemViewModel'),seen=new Set(),saved=[];
+        for(const vm of Il2Cpp.gc.choose(c).filter(o=>o.class.handle.equals(c.handle))){
+            const e=vm.field('_engine').value,category=vm.field('_customItemCategoryModel').value;
+            if(e.handle.isNull()||!e.handle.equals(m.engine.handle)||category.handle.isNull())continue;
+            const type=text(category.field('<TransferableGroupType>k__BackingField').value);
+            if(!type||seen.has(type)||!vm.field('_wearingCustomItemSavableTransferableGroup').value)continue;
+            if(args.types&&!args.types.includes(type.split('.').pop()))continue;
+            seen.add(type);invokeManaged(vm,'SaveAsCustomItem',[(()=>{const b=Memory.alloc(1);b.writeU8(0);return b;})()]);
+            saved.push(type.split('.').pop());
+        }
+        return {model_token:m.token,saved:saved.sort(),frame:state.frame};
+    }
     function vector(x,y,z) {
         const o=core('Vector3').alloc(),v=o.unbox();v.method('.ctor',3).invoke(x,y,z);return v;
     }
@@ -355,10 +562,16 @@ globalThis.vroid = (() => {
             return {selected:p.selected,model_token:m.token,active_groups:activeGroupSnapshot(m)};},
         undo:a=>history(a,'UndoAsync'),redo:a=>history(a,'RedoAsync'),new_model:newModel,
         save_as:save,open_model:open,screenshot,
+        list_start_models:()=>({models:startItems().map(({item,...data})=>data)}),open_start_model:openStartModel,
+        list_parts:listParts,replace_part:replacePart,save_custom_items:saveCustomItems,
+        vrm_export_state:vrmExportState,enter_vrm_export:enterVrmExport,leave_vrm_export:leaveVrmExport,
+        start_vrm_export:startVrmExport,vrm_export_status:vrmExportStatus,
         gc_check(){Il2Cpp.gc.collect(2);return list();}};
     return {dispatch(name,args={}){
         if(!Object.hasOwn(operations,name))throw Error('UNKNOWN_OPERATION');
-        const editOperation=/^(set_(face|body|clothing)_params|apply_.*preset|edit_hair_structure|edit_accessories|generate_hair_bones|save_as|undo|redo|preview_expression)$/.test(name)||name==='set_parameters'&&args.domain!=='photo';
+        // The user's own VRoid keeps its own file: no replacing the model or re-pointing its save path.
+        if(ATTACHED&&['new_model','open_model','save_as'].includes(name))throw Error('NOT_ALLOWED_WHEN_ATTACHED: '+name);
+        const editOperation=/^(set_(face|body|clothing)_params|apply_.*preset|edit_hair_structure|edit_accessories|generate_hair_bones|save_as|undo|redo|preview_expression|replace_part|save_custom_items)$/.test(name)||name==='set_parameters'&&args.domain!=='photo';
         if(editOperation&&model().root.field('obsoleteLegacyPhotoBoothViewModel').value.method('get_IsActive').invoke())throw Error('RETURN_TO_EDIT_MODE_FIRST');
         return operations[name](args);
     }};

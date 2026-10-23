@@ -34,15 +34,15 @@ def review_folder(lab: pathlib.Path, capture_id: str) -> pathlib.Path:
     return folder
 
 
-def save_destination(lab: pathlib.Path, filename: str) -> pathlib.Path:
-    """A single filename in saves/, never an absolute path or alternate stream."""
+def save_destination(lab: pathlib.Path, filename: str, folder_name: str = 'saves', suffix: str = '.vroid') -> pathlib.Path:
+    """A single filename in saves/ (or exports/), never an absolute path or alternate stream."""
     if not filename or any(ord(c)<32 or c in '\\/:<>"|?*' for c in filename) or filename.rstrip(' .') != filename:
-        raise ValueError('Use a plain .vroid filename without path separators')
-    if not filename.lower().endswith('.vroid') or filename in ('.vroid', '..vroid'):
-        raise ValueError('A nonempty .vroid filename is required')
+        raise ValueError(f'Use a plain {suffix} filename without path separators')
+    if not filename.lower().endswith(suffix) or filename.lower() in (suffix, '.'+suffix):
+        raise ValueError(f'A nonempty {suffix} filename is required')
     if filename.split('.')[0].upper() in {'CON','PRN','AUX','NUL',*[f'COM{i}' for i in range(1,10)],*[f'LPT{i}' for i in range(1,10)]}:
         raise ValueError('Reserved Windows filename')
-    folder = lab.resolve() / 'saves'
+    folder = lab.resolve() / folder_name
     folder.mkdir(exist_ok=True)
     if folder.resolve() != folder:
         raise ValueError('The saves directory must not be a link or junction')
@@ -52,12 +52,37 @@ def save_destination(lab: pathlib.Path, filename: str) -> pathlib.Path:
     return destination
 
 
+def find_open_vroid(lab: pathlib.Path) -> list[dict]:
+    """VRoid processes the user opened, excluding this lab's copy.
+
+    Frida omits processes with higher privileges, so tasklist supplies every PID;
+    those come back with path None and need an elevated MCP client.
+    """
+    import csv
+    import subprocess
+    app = (lab.resolve() / 'app').resolve()
+    visible = {p.pid: p.parameters.get('path') for p in frida.get_local_device().enumerate_processes(scope='full')
+               if p.name.lower() == 'vroidstudio.exe'}
+    listing = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq VRoidStudio.exe', '/FO', 'CSV', '/NH'],
+                             capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout
+    pids = {int(row[1]) for row in csv.reader(listing.splitlines()) if len(row) > 1 and row[0].lower() == 'vroidstudio.exe'}
+    found = []
+    for pid in sorted(pids | visible.keys()):
+        path = visible.get(pid)
+        if path and pathlib.Path(path).resolve().is_relative_to(app):
+            continue
+        found.append({'pid': pid, 'path': path})
+    return found
+
+
 class Runtime:
-    """One Frida owner per lab. It only spawns and owns the designated copy."""
+    """One Frida owner per lab: spawns the designated copy, or attaches to a VRoid the user opened."""
     def __init__(self, lab: pathlib.Path, bridge_js: pathlib.Path | None = None):
         self.lab = lab.resolve()
         self.exe = self.lab / 'app' / 'VRoidStudio.exe'
         self.bridge_js = bridge_js or PROJECT / 'node_modules/frida-il2cpp-bridge/dist/index.js'
+        self.mode = 'copy'
+        self.target: str | None = None
         self.pid: int | None = None
         self.device = self.session = self.script = None
         self.lock = asyncio.Lock()
@@ -77,10 +102,29 @@ class Runtime:
         self.dead = True
         self._event({'event':'detached','reason':reason})
 
+    def _own_lab(self) -> None:
+        import msvcrt
+        self.file_lock=(self.lab/'.mcp-owner.lock').open('a+b')
+        self.file_lock.seek(0);self.file_lock.write(b'0');self.file_lock.flush();self.file_lock.seek(0)
+        try:msvcrt.locking(self.file_lock.fileno(),msvcrt.LK_NBLCK,1)
+        except OSError:
+            self.file_lock.close();self.file_lock=None
+            raise RuntimeError('Another MCP process already owns this lab')
+        self.run_dir.mkdir(parents=True)
+
+    def _agent(self, attached: bool, probe: dict | None = None) -> str:
+        parts=['const ATTACHED='+json.dumps(attached)+';',(PROJECT/'agent/traps.js').read_text(encoding='utf-8')]
+        if probe is not None:
+            parts+=['const PROBE='+json.dumps(probe)+';',(PROJECT/'agent/isolate.js').read_text(encoding='utf-8')]
+        parts+=[self.bridge_js.read_text(encoding='utf-8'),
+                (PROJECT/'agent/bootstrap.js').read_text(encoding='utf-8'),
+                (PROJECT/'agent/parameters.js').read_text(encoding='utf-8'),
+                (PROJECT/'agent/operations.js').read_text(encoding='utf-8')]
+        return '\n'.join(parts)
+
     def start(self) -> None:
         if os.name != 'nt':
             raise RuntimeError('This prototype is validated only on Windows')
-        import msvcrt
         if not self.exe.is_file() or not self.bridge_js.is_file():
             raise FileNotFoundError('VRoid copy or frida-il2cpp-bridge is missing')
         # Reject a junction/symlink that could redirect app/ to the original install.
@@ -89,13 +133,7 @@ class Runtime:
         digest=hashlib.sha256((self.lab/'app/GameAssembly.dll').read_bytes()).hexdigest()
         if digest != TESTED_ASSEMBLY_SHA256:
             raise RuntimeError('Untested VRoid binary: refusing native calls')
-        self.file_lock=(self.lab/'.mcp-owner.lock').open('a+b')
-        self.file_lock.seek(0);self.file_lock.write(b'0');self.file_lock.flush();self.file_lock.seek(0)
-        try:msvcrt.locking(self.file_lock.fileno(),msvcrt.LK_NBLCK,1)
-        except OSError:
-            self.file_lock.close();self.file_lock=None
-            raise RuntimeError('Another MCP process already owns this lab')
-        self.run_dir.mkdir(parents=True)
+        self._own_lab()
         for rel in ['Documents','AppData/Local','AppData/LocalLow/pixiv/VRoid Studio/custom_items',
                     'AppData/LocalLow/pixiv/VRoid Studio/XWear/Closet','AppData/Roaming','Temp']:
             (self.lab/'profile'/rel).mkdir(parents=True,exist_ok=True)
@@ -111,21 +149,69 @@ class Runtime:
             self.pid=self.device.spawn(argv,cwd=str(self.exe.parent),env=env,stdio='pipe')
             self.session=self.device.attach(self.pid)
             self.session.on('detached',self._detached)
-            parts=['const PROBE='+json.dumps(config)+';',
-                   (PROJECT/'agent/isolate.js').read_text(encoding='utf-8'),
-                   self.bridge_js.read_text(encoding='utf-8'),
-                   (PROJECT/'agent/bootstrap.js').read_text(encoding='utf-8'),
-                   (PROJECT/'agent/parameters.js').read_text(encoding='utf-8'),
-                   (PROJECT/'agent/operations.js').read_text(encoding='utf-8')]
-            self.script=self.session.create_script('\n'.join(parts))
+            self.script=self.session.create_script(self._agent(False,config))
             self.script.on('message',lambda message,data:self._event({'event':'agent','message':message}))
             self.script.load();self.device.resume(self.pid)
             self._event({'event':'spawned-copy','pid':self.pid,'exe':str(self.exe)})
         except BaseException:
             self.close();raise
 
+    def attach(self, pid: int) -> None:
+        """Attach to a VRoid the user opened. No isolation hooks: its files and settings stay its own."""
+        if os.name != 'nt':
+            raise RuntimeError('This prototype is validated only on Windows')
+        if not self.bridge_js.is_file():
+            raise FileNotFoundError('frida-il2cpp-bridge is missing')
+        target=next((p for p in find_open_vroid(self.lab) if p['pid']==pid),None)
+        if target is None:
+            raise ValueError(f'PID {pid} is not a VRoid Studio opened outside this lab')
+        if not target['path']:
+            raise PermissionError(f'VRoid (PID {pid}) runs with higher privileges; run the MCP client as administrator, '
+                                  'or start Steam/VRoid without administrator rights')
+        exe=pathlib.Path(target['path'])
+        digest=hashlib.sha256((exe.parent/'GameAssembly.dll').read_bytes()).hexdigest()
+        if digest != TESTED_ASSEMBLY_SHA256:
+            raise RuntimeError('Untested VRoid binary: refusing native calls')
+        self._own_lab()
+        self.mode='attached';self.target=str(exe)
+        self.device=frida.get_local_device()
+        try:
+            try:self.session=self.device.attach(pid)
+            except frida.PermissionDeniedError as error:
+                raise PermissionError(f'Cannot attach to VRoid (PID {pid}); run the MCP client as administrator '
+                                      'if VRoid runs as administrator') from error
+            self.pid=pid
+            self.session.on('detached',self._detached)
+            self.script=self.session.create_script(self._agent(True))
+            self.script.on('message',lambda message,data:self._event({'event':'agent','message':message}))
+            self.script.load()
+            self._event({'event':'attached','pid':pid,'exe':str(exe)})
+        except BaseException:
+            self.close();raise
+
+    async def adopt(self) -> dict:
+        """Find the live view models and keep the attached VRoid processing in the background."""
+        async with self.lock:
+            deadline=time.monotonic()+20
+            while True:
+                health=await asyncio.to_thread(self.script.exports_sync.health)
+                if health['error']:raise RuntimeError(health['error'])
+                if health['ready']:break
+                if time.monotonic()>deadline:raise TimeoutError('Bridge did not become ready in the attached VRoid')
+                await asyncio.sleep(.2)
+            try:
+                adopted=await asyncio.wait_for(asyncio.to_thread(self.script.exports_sync.adopt),30)
+            except (asyncio.TimeoutError,frida.core.RPCException) as error:
+                if 'MAIN_THREAD_TIMEOUT' in str(error) or isinstance(error,asyncio.TimeoutError):
+                    raise TimeoutError('VRoid main thread did not respond; click the VRoid window once, then attach again') from error
+                raise
+            self._event({'event':'adopted',**adopted})
+            return adopted
+
     async def _call(self, operation: str, args: dict | None = None) -> Any:
         if self.dead or self.script is None:
+            if self.mode=='attached':
+                raise RuntimeError('ATTACHED_VROID_DISCONNECTED: call attach_open_vroid again')
             raise RuntimeError('COPY_DISCONNECTED: restart the MCP server')
         if self.uncertain and operation != 'status':
             raise RuntimeError('PREVIOUS_CALL_UNCERTAIN: restart; do not retry a mutation')
@@ -179,20 +265,25 @@ class Runtime:
         self.uncertain=True
         raise TimeoutError('Model did not finish updating: '+json.dumps(result))
 
+    def _disconnected(self) -> dict:
+        if self.mode=='attached':
+            return {'mode':self.mode,'target':self.target,'model_ready':False,'connected':False,'writes_blocked':True,
+                    'reason':'ATTACHED_VROID_DISCONNECTED','recovery':'attach_open_vroid again, or detach_open_vroid'}
+        return {'mode':self.mode,'model_ready':False,'connected':False,'writes_blocked':True,
+                'reason':'COPY_DISCONNECTED','recovery':'restart_session requires discard_unsaved=true'}
+
     async def status(self) -> dict:
         async with self.lock:
             if self.dead:
-                return {'model_ready':False,'connected':False,'writes_blocked':True,
-                        'reason':'COPY_DISCONNECTED','recovery':'restart_session requires discard_unsaved=true'}
+                return self._disconnected()
             try:
                 status=await self._call('status')
             except frida.InvalidOperationError as error:
                 if 'script has been destroyed' not in str(error):
                     raise
                 self.dead=True
-                return {'model_ready':False,'connected':False,'writes_blocked':True,
-                        'reason':'COPY_DISCONNECTED','recovery':'restart_session requires discard_unsaved=true'}
-            status.update(connected=True,writes_blocked=self.uncertain)
+                return self._disconnected()
+            status.update(mode=self.mode,target=self.target or str(self.exe),connected=True,writes_blocked=self.uncertain)
             return status
 
     async def list_face_params(self) -> dict:
@@ -202,13 +293,14 @@ class Runtime:
         if area not in ('face','body','clothing'):raise ValueError('Unsupported parameter area')
         async with self.lock:return await self._call('list_'+area+'_params')
 
-    async def set_face_params(self, expected_model: str, changes: list[dict]) -> dict:
-        return await self.set_params('face',expected_model,changes)
+    async def set_face_params(self, expected_model: str, changes: list[dict], allow_out_of_ui_range: bool = False) -> dict:
+        return await self.set_params('face',expected_model,changes,allow_out_of_ui_range)
 
-    async def set_params(self, area: str, expected_model: str, changes: list[dict]) -> dict:
+    async def set_params(self, area: str, expected_model: str, changes: list[dict], allow_out_of_ui_range: bool = False) -> dict:
         if area not in ('face','body','clothing'):raise ValueError('Unsupported parameter area')
         async with self.lock:
-            result=await self._call('set_'+area+'_params',{'expected_model':expected_model,'changes':changes})
+            result=await self._call('set_'+area+'_params',{'expected_model':expected_model,'changes':changes,
+                                                          'allow_out_of_ui_range':allow_out_of_ui_range})
             settled=await self._settle(result['frame'])
             if settled['model_token']!=expected_model:raise RuntimeError('MODEL_CHANGED_DURING_OPERATION')
             result['settled']=True
@@ -377,6 +469,8 @@ class Runtime:
         return manifest,images
 
     async def save_as(self, filename: str, expected_model: str) -> dict:
+        if self.mode=='attached':
+            raise ValueError('Attached to your own VRoid: save there with Ctrl+S; save_as would re-point its file path')
         async with self.lock:
             destination=save_destination(self.lab,filename)
             staging=destination.parent/('stage-'+uuid.uuid4().hex+'.vroid')
@@ -389,7 +483,74 @@ class Runtime:
             return {'path':str(destination),'bytes':destination.stat().st_size,'model_token':expected_model,
                     'sha256':hashlib.sha256(destination.read_bytes()).hexdigest()}
 
+    async def list_start_models(self) -> dict:
+        async with self.lock:
+            return await self._call('list_start_models')
+
+    async def open_start_model(self, name: str, group: str | None = None) -> dict:
+        """Click a start-screen card, then wait for the model; a slow download or a dialog is reported, not fatal."""
+        async with self.lock:
+            requested=await self._call('open_start_model',{'name':name,'group':group})
+            deadline=time.monotonic()+90
+            while time.monotonic()<deadline:
+                status=await self._call('status')
+                if status['model_ready'] and not status['updating'] and not status.get('presets_loading'):
+                    return {**requested,'opened':True,'model_token':status['model_token']}
+                await asyncio.sleep(.3)
+            return {**requested,'opened':False,'status':status,
+                    'message':'Not loaded yet: VRoid may still be downloading or showing a dialog; check get_status'}
+
+    async def list_parts(self) -> dict:
+        async with self.lock:
+            await self._settle()
+            return await self._call('list_parts')
+
+    async def replace_part(self, expected_model: str, part_id: str) -> dict:
+        """Swap one transferable group by id, wait for the command to finish, then confirm the part is active."""
+        async with self.lock:
+            await self._settle()
+            requested=await self._call('replace_part',{'expected_model':expected_model,'part_id':part_id})
+            await asyncio.sleep(.3)
+            settled=await self._settle(requested['frame'])
+            parts=(await self._call('list_parts'))['parts']
+            if not any(p['id']==part_id for p in parts):
+                raise RuntimeError('REPLACE_PART_FAILED: part is not active afterwards; VRoid logs the native error in Player.log')
+            return {'part_id':part_id,'replaced':True,'model_token':settled['model_token']}
+
+    async def save_custom_items(self, expected_model: str, types: list[str] | None = None) -> dict:
+        return await self.parameter_call('save_custom_items',{'expected_model':expected_model,'types':types},True)
+
+    async def export_vrm(self, expected_model: str, filename: str, version: int = 1) -> dict:
+        """Export through VRoid's exporter into lab/exports; enters and leaves the export screen if needed."""
+        if version not in (0,1):raise ValueError('version must be 0 (VRM 0.x) or 1 (VRM 1.0)')
+        destination=save_destination(self.lab,filename,'exports','.vrm')
+        args={'expected_model':expected_model}
+        async with self.lock:
+            await self._settle()
+            state=await self._call('vrm_export_state',args)
+            entered=not state['export_screen']
+            if entered:await self._call('enter_vrm_export',args)
+            deadline=time.monotonic()+60
+            while not (await self._call('vrm_export_state',args))['ready']:
+                if time.monotonic()>deadline:raise TimeoutError('VRM export screen did not become ready')
+                await asyncio.sleep(.3)
+            try:
+                await self._call('start_vrm_export',{**args,'version':version,'path':str(destination)})
+                deadline=time.monotonic()+900
+                while True:
+                    status=await self._call('vrm_export_status')
+                    if not status['running']:break
+                    if time.monotonic()>deadline:raise TimeoutError('VRM export did not finish within 15 minutes')
+                    await asyncio.sleep(1)
+            finally:
+                if entered:await self._call('leave_vrm_export',args)
+            if not status.get('done') or not destination.is_file():
+                raise RuntimeError('VRM_EXPORT_FAILED: VRoid reported failure; see its Player.log')
+            return {'path':str(destination),'bytes':destination.stat().st_size,'version':version,
+                    'sha256':hashlib.sha256(destination.read_bytes()).hexdigest()}
+
     async def reopen_for_test(self, path: pathlib.Path) -> dict:
+        if self.mode=='attached':raise ValueError('Never open another model in the user\'s own VRoid')
         resolved=path.resolve()
         if not resolved.is_relative_to(self.lab) or not resolved.is_file():raise ValueError('Only lab models may be opened')
         async with self.lock:
@@ -397,9 +558,18 @@ class Runtime:
             return await self._settle()
 
     def close(self) -> None:
-        # Kill only the process returned by this instance's spawn. No name-based attach/kill.
+        # Kill only the process returned by this instance's spawn. An attached VRoid is
+        # only detached from: it keeps running with the user's unsaved work.
         try:
-            if self.pid is not None and self.device is not None and not self.dead:
+            if self.mode=='attached':
+                if self.script is not None and not self.dead:
+                    try:self._event({'event':'released',**self.script.exports_sync.release()})
+                    except Exception as error:self._event({'event':'release-error','error':str(error)})
+                    try:self.script.unload()
+                    except frida.InvalidOperationError:pass
+                if self.session is not None and not self.dead:
+                    self.session.detach()
+            elif self.pid is not None and self.device is not None and not self.dead:
                 try:self.device.kill(self.pid)
                 except frida.ProcessNotFoundError:pass
         finally:

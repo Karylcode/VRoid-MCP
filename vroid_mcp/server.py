@@ -13,7 +13,7 @@ from mcp.server.fastmcp.utilities.types import Image
 from mcp.types import ToolAnnotations, TextContent, ImageContent
 from pydantic import BaseModel, Field
 
-from .runtime import Runtime
+from .runtime import Runtime, find_open_vroid
 
 
 class FaceChange(BaseModel):
@@ -53,6 +53,9 @@ def create_server(lab: Path, variant: str, model_file: Path | None = None) -> Fa
 
     mcp = FastMCP('VRoid Character MCP', lifespan=lifespan,
         instructions='Controls a disposable VRoid Studio copy through native methods. '
+        'When the user means the VRoid they opened themselves, call attach_open_vroid first; '
+        'edits then change their real model (native Undo works, they save with Ctrl+S, save_as is refused). '
+        'detach_open_vroid returns to the copy. If it shows its start screen, list_start_models and open_start_model open a card. '
         'Call list_face_params first and use its model_token as expected_model. '
         'Use list_parameters for colors, expressions, general, accessories and hair. '
         'Use list_hair_nodes(category) then its node id as scope for hair parameters. '
@@ -61,7 +64,7 @@ def create_server(lab: Path, variant: str, model_file: Path | None = None) -> Fa
         'Use set_height for a measured centimeter target. '
         'Use capture_review before and after edits for native multi-view images and parameter comparisons; inspect the images before judging appearance. '
         'List the relevant parameters or presets before applying them. Relist clothing parameters after changing clothes. '
-        'No desktop input, texture painting, strand drawing, custom material authoring, or VRM export. '
+        'Use export_vrm for VRM 0.x or 1.0 files. No desktop input, texture painting, strand drawing or custom material authoring. '
         'A batch follows VRoid native history and can require multiple undo steps.')
     read = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
     edit = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
@@ -78,12 +81,94 @@ def create_server(lab: Path, variant: str, model_file: Path | None = None) -> Fa
         return register
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False))
+    async def attach_open_vroid(pid: int | None = None, discard_copy_unsaved: bool = False) -> dict:
+        """Switch all tools to the VRoid Studio the user opened themselves (not the MCP copy).
+
+        pid is needed only when several VRoid windows are open. A running MCP copy is closed,
+        so pass discard_copy_unsaved=true if it was started (save_as it first when useful).
+        Edits then change the user's real model through native history (Undo works). The user
+        saves in VRoid; save_as and opening models are refused. Never closes the user's VRoid.
+        """
+        nonlocal runtime, initialized
+        async with operation_lock:
+            if initialized and runtime.mode=='copy' and not runtime.dead and not discard_copy_unsaved:
+                raise ValueError('The MCP copy is running: save_as first or pass discard_copy_unsaved=true')
+            if pid is None:
+                candidates=await asyncio.to_thread(find_open_vroid,lab)
+                if not candidates:raise ValueError('No VRoid Studio window opened outside the MCP was found')
+                if len(candidates)>1:raise ValueError('Several VRoid windows are open; pass pid: '+json.dumps(candidates))
+                pid=candidates[0]['pid']
+            await asyncio.to_thread(runtime.close)
+            runtime=Runtime(lab)
+            initialized=False
+            try:
+                await asyncio.to_thread(runtime.attach,pid)
+                adopted=await runtime.adopt()
+            except BaseException:
+                await asyncio.to_thread(runtime.close)
+                runtime=Runtime(lab)
+                raise
+            initialized=True
+            return {**await runtime.status(),'adopted':adopted}
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False))
+    async def detach_open_vroid() -> dict:
+        """Stop controlling the user's own VRoid; it keeps running untouched. The next tool call starts the MCP copy."""
+        nonlocal runtime, initialized
+        async with operation_lock:
+            if runtime.mode!='attached':
+                return {'detached':False,'mode':runtime.mode}
+            await asyncio.to_thread(runtime.close)
+            runtime=Runtime(lab)
+            initialized=False
+            return {'detached':True,'mode':'copy','next':'The next tool call starts a fresh MCP copy'}
+
+    @ready_tool(annotations=read)
+    async def list_start_models() -> dict:
+        """List model cards on VRoid's start screen: recent models, built-in AvatarSample models and old models."""
+        return await runtime.list_start_models()
+
+    @ready_tool(annotations=edit)
+    async def open_start_model(name: str, group: Literal['recent','sample','old'] | None = None) -> dict:
+        """Open a start-screen model like clicking its card, e.g. name='AvatarSample_M'.
+
+        Only while no model is open, so unsaved work is never replaced. Meant for the user's VRoid
+        after attach_open_vroid. Waits up to 90 s for loading; samples may download first.
+        """
+        return await runtime.open_start_model(name,group)
+
+    @ready_tool(annotations=read)
+    async def list_parts() -> dict:
+        """List every part (transferable group) the model is built from: id, type, resource_name,
+        original_resource_name (the built-in a custom part came from), custom and updated flags.
+        Built-in part ids can be passed to replace_part on another model to use exactly the same part.
+        """
+        return await runtime.list_parts()
+
+    @ready_tool(annotations=edit)
+    async def replace_part(expected_model: str, part_id: str) -> dict:
+        """Replace exactly one part by transferable group id from list_parts, e.g. one FaceShape without
+        the rest of its face set. Works for built-in ids and custom items registered in this VRoid's closet.
+        Native history supports Undo. Relist parameters afterwards.
+        """
+        return await runtime.replace_part(expected_model,part_id)
+
+    @ready_tool(annotations=edit)
+    async def save_custom_items(expected_model: str, types: list[str] | None = None) -> dict:
+        """Save worn parts VRoid marks savable (custom or modified) as custom items, like its own
+        "save as custom item". Files go to this VRoid's custom_items folder (the user's real closet when
+        attached). types limits it to part types such as ['Iris','AllHair'].
+        """
+        return await runtime.save_custom_items(expected_model,types)
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False))
     async def restart_session(discard_unsaved: bool = False) -> dict:
         """Recreate only this MCP-owned VRoid copy, discarding its unsaved changes.
 
         Requires explicit discard_unsaved=true. Save first when possible; do not use
         this to silently discard a user's work. A new model_token invalidates old IDs.
-        Works after COPY_DISCONNECTED or an uncertain native call. Never touches other VRoid processes.
+        Works after COPY_DISCONNECTED or an uncertain native call. Never touches other VRoid processes;
+        when attached to the user's VRoid it only detaches from it.
         """
         nonlocal runtime, initialized
         if not discard_unsaved:
@@ -216,13 +301,15 @@ def create_server(lab: Path, variant: str, model_file: Path | None = None) -> Fa
         return await runtime.list_face_params()
 
     @ready_tool(annotations=edit)
-    async def set_face_params(expected_model: str, changes: list[FaceChange]) -> dict:
+    async def set_face_params(expected_model: str, changes: list[FaceChange], allow_out_of_ui_range: bool = False) -> dict:
         """Set 1-64 face sliders. All values are validated first; duplicate aliases are rejected.
 
         Only the model matching expected_model may change. Native execution failures can
         produce a partial result; inspect applied and error before doing further work.
+        allow_out_of_ui_range=true accepts values up to one slider span beyond min/max; use it only to
+        copy values another model really holds (samples from older VRoid versions), not to invent them.
         """
-        return await runtime.set_face_params(expected_model,[item.model_dump() for item in changes])
+        return await runtime.set_face_params(expected_model,[item.model_dump() for item in changes],allow_out_of_ui_range)
 
     @ready_tool(annotations=read)
     async def list_body_params() -> dict:
@@ -230,9 +317,12 @@ def create_server(lab: Path, variant: str, model_file: Path | None = None) -> Fa
         return await runtime.list_params('body')
 
     @ready_tool(annotations=edit)
-    async def set_body_params(expected_model: str, changes: list[FaceChange]) -> dict:
-        """Set 1-64 body parameters from list_body_params through native VRoid history."""
-        return await runtime.set_params('body',expected_model,[item.model_dump() for item in changes])
+    async def set_body_params(expected_model: str, changes: list[FaceChange], allow_out_of_ui_range: bool = False) -> dict:
+        """Set 1-64 body parameters from list_body_params through native VRoid history.
+
+        allow_out_of_ui_range: see set_face_params.
+        """
+        return await runtime.set_params('body',expected_model,[item.model_dump() for item in changes],allow_out_of_ui_range)
 
     @ready_tool(annotations=read)
     async def list_clothing_params() -> dict:
@@ -279,7 +369,9 @@ def create_server(lab: Path, variant: str, model_file: Path | None = None) -> Fa
         """Return native PNG, size 256..2048: front/side/back/three_quarter for head; full_ prefix for body; photo for posed preview."""
         return Image(data=await runtime.screenshot(view,expected_model,size),format='png')
 
-    @ready_tool(annotations=ToolAnnotations(readOnlyHint=False,destructiveHint=False,openWorldHint=False))
+    # The list return type would also publish {"result": [...]} structured content,
+    # sending every PNG a second time as base64 text.
+    @ready_tool(annotations=ToolAnnotations(readOnlyHint=False,destructiveHint=False,openWorldHint=False),structured_output=False)
     async def capture_review(expected_model: str, label: str = Field(default='',max_length=80),
                              views: list[str] | None = None, size: int = Field(default=1024,ge=256,le=2048),
                              baseline_id: str | None = None) -> list[TextContent | ImageContent]:
@@ -303,8 +395,21 @@ def create_server(lab: Path, variant: str, model_file: Path | None = None) -> Fa
         return content
 
     @ready_tool(annotations=edit)
+    async def export_vrm(expected_model: str, filename: str, version: Literal[0,1] = 1) -> dict:
+        """Export the model as VRM through VRoid's own exporter into the lab's exports/ folder.
+
+        version 1 = VRM 1.0, 0 = VRM 0.x. Uses the model's stored VRM meta (name, authors, license);
+        VRoid's default settings (hair mesh combination on, no material or mesh reduction).
+        Works on the MCP copy and on the user's own VRoid; existing files are never overwritten.
+        """
+        return await runtime.export_vrm(expected_model,filename,version)
+
+    @ready_tool(annotations=edit)
     async def save_as(expected_model: str, filename: str) -> dict:
-        """Save a new .vroid file under the lab's saves/ folder. Existing files are never overwritten."""
+        """Save a new .vroid file under the lab's saves/ folder. Existing files are never overwritten.
+
+        Refused while attached to the user's own VRoid; they save there themselves.
+        """
         return await runtime.save_as(filename,expected_model)
 
     return mcp

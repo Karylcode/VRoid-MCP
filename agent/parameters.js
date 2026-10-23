@@ -119,7 +119,11 @@ globalThis.createParameterApi = H => {
             invokeManaged(e,'set_SelectedInstance',[o.handle]);
             for(const p of ['IsVisible','IsEditable']){
                 const entry=param(o,p,prefix+'/'+p,'bool',{label:p,category:label(o,id)});
-                entry.write=v=>invokeManaged(o,p==='IsVisible'?'SetVisibility':'SetEditability',[argument('bool',v)]);out.push(entry);
+                // The item VM's SetVisibility only flips the list icon; the native history command hides the mesh.
+                entry.write=p==='IsVisible'?v=>{
+                    const command=cls('VRoidCore','VRoidCore.Editing.History.Command.SetTransferableVisibilityCommand').alloc();
+                    invokeManaged(command,'.ctor',[Il2Cpp.string(id).handle,argument('bool',v)]);invokeManaged(m.context,'ExecuteSyncCommand',[command.handle]);
+                }:v=>invokeManaged(o,'SetEditability',[argument('bool',v)]);out.push(entry);
             }
             const getTransform=()=>{
                 const q=cls('VRoidCore','VRoidCore.Editing.Query.GetPartOriginQuery').alloc();invokeManaged(q,'.ctor',[Il2Cpp.string(id).handle]);
