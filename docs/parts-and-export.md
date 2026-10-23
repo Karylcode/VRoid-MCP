@@ -1,6 +1,6 @@
-# Parts, custom items and VRM export
-
 **English** | [繁體中文](parts-and-export.zh-TW.md) · [Documentation index](README.md)
+
+# Parts, custom items and VRM export
 
 ## Parts and custom items
 

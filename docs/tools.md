@@ -1,6 +1,6 @@
-# Tool reference
-
 **English** | [繁體中文](tools.zh-TW.md) · [Documentation index](README.md)
+
+# Tool reference
 
 The server provides 42 tools. Parameters are listed as name=default; parameters without a default are required.
 

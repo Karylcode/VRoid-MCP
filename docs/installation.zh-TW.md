@@ -1,6 +1,6 @@
-# 安裝
-
 [English](installation.md) | **繁體中文** · [文件索引](README.zh-TW.md)
+
+# 安裝
 
 ## 相容環境
 

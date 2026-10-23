@@ -1,6 +1,6 @@
-# Development and tests
-
 **English** | [繁體中文](development.zh-TW.md) · [Documentation index](README.md)
+
+# Development and tests
 
 ## Unit tests
 

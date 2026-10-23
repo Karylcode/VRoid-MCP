@@ -1,6 +1,6 @@
-# Behavior and limitations
-
 **English** | [繁體中文](limitations.zh-TW.md) · [Documentation index](README.md)
+
+# Behavior and limitations
 
 ## Behavior
 

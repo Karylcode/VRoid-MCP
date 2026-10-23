@@ -1,6 +1,6 @@
-# Visual review
-
 **English** | [繁體中文](visual-review.zh-TW.md) · [Documentation index](README.md)
+
+# Visual review
 
 Both tools render native PNG images into an offscreen texture, so the image size does not depend on the VRoid window. Before capturing they clear editor selections and guides; they do not edit or save the character.
 

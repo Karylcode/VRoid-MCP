@@ -1,6 +1,6 @@
-# 部件、自訂物件與 VRM 匯出
-
 [English](parts-and-export.md) | **繁體中文** · [文件索引](README.zh-TW.md)
+
+# 部件、自訂物件與 VRM 匯出
 
 ## 部件與自訂物件
 

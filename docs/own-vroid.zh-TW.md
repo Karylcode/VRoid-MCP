@@ -1,6 +1,6 @@
-# 接上自己開的 VRoid
-
 [English](own-vroid.md) | **繁體中文** · [文件索引](README.zh-TW.md)
+
+# 接上自己開的 VRoid
 
 預設所有工具都操作 MCP 副本。呼叫 **attach_open_vroid** 後，所有工具改為操作你自己開啟的 VRoid Studio。**之後的修改會直接作用在你的模型。**
 

@@ -1,6 +1,6 @@
-# Usage
-
 **English** | [繁體中文](usage.zh-TW.md) · [Documentation index](README.md)
+
+# Usage
 
 ## What you can edit
 

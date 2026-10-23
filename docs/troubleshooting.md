@@ -1,6 +1,6 @@
-# Troubleshooting
-
 **English** | [繁體中文](troubleshooting.zh-TW.md) · [Documentation index](README.md)
+
+# Troubleshooting
 
 ## Common situations
 

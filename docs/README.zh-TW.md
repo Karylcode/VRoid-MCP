@@ -1,6 +1,6 @@
-# 文件
-
 [English](README.md) | **繁體中文** · [專案 README](../README.zh-TW.md)
+
+# 文件
 
 先讀「安裝」與「使用方式」，其他頁面供查閱。
 

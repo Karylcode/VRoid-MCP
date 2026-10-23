@@ -1,10 +1,12 @@
-# VRoid Character MCP
-
 **English** | [繁體中文](README.zh-TW.md)
 
-**v0.4.0 · Windows · 42 MCP tools · stdio**
+# VRoid Character MCP
 
-A local MCP server that lets an AI client edit VRoid Studio characters: face, body and clothing sliders, hair, accessories, colors, presets and parts. It checks the result with native screenshots and exports VRM files. Operations run through Frida and VRoid's own native methods; the server does not simulate mouse or keyboard input or use OCR. It is built with Python (MCP Python SDK) and a JavaScript Frida agent (frida-il2cpp-bridge), and works with stdio MCP clients such as Codex and Claude Code.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/)
+[![VRoid Studio 2.14.0](https://img.shields.io/badge/VRoid%20Studio-2.14.0-orange.svg)](https://vroid.com/studio)
+
+A local MCP server with 42 MCP tools that lets an AI client edit VRoid Studio characters: face, body and clothing sliders, hair, accessories, colors, presets and parts. It checks the result with native screenshots and exports VRM files. Operations run through Frida and VRoid's own native methods; the server does not simulate mouse or keyboard input or use OCR. It is built with Python (MCP Python SDK) and a JavaScript Frida agent (frida-il2cpp-bridge), and works with stdio MCP clients such as Codex and Claude Code.
 
 > [!IMPORTANT]
 > - This is an **unofficial, experimental local tool**.
@@ -12,26 +14,24 @@ A local MCP server that lets an AI client edit VRoid Studio characters: face, bo
 > - By default the server launches only a designated physical copy of VRoid with a separate profile. Copy isolation and in-process write guards are not an operating-system sandbox.
 > - **attach_open_vroid** connects to a VRoid you opened yourself. Edits then change your real model.
 
-## What it can do
+## What it does
 
-- Face, body and clothing sliders, and height to a centimeter target
-- Hair presets, hair group and strand parameters, procedural hair groups and hair bones
-- Accessories, colors, expressions and photo-preview settings
-- List the parts of a model, replace one part, save worn parts as custom items
-- Native screenshots and multi-view before/after review
-- Native Undo/Redo, save-as to a new .vroid file, VRM 0.x / 1.0 export
-- Attach to a VRoid Studio you opened yourself
-
-Full coverage: [Usage](docs/usage.md#what-you-can-edit).
+- **Sliders**: face, body and clothing sliders, and height to a centimeter target
+- **Hair**: hair presets, hair group and strand parameters, procedural hair groups and hair bones
+- **Parameters**: accessories, colors, expressions and photo-preview settings
+- **Parts**: list the parts of a model, replace one part, save worn parts as custom items
+- **Review**: native screenshots and multi-view before/after review
+- **Undo, save and export**: native Undo/Redo, save-as to a new .vroid file, VRM 0.x / 1.0 export
+- **Your own VRoid**: attach to a VRoid Studio you opened yourself
 
 ## Requirements
 
 - Windows x64
-- SHA-256-checked VRoid Studio 2.14.0 (Unity 6000.0.62f1); other builds are refused
+- SHA-256-checked VRoid Studio 2.14.0 (Unity 6000.0.62f1), not included in this repository; other builds are refused
 - Python 3.10, Frida 17.16.0, MCP Python SDK 1.30.0
 - Node.js and npm (for frida-il2cpp-bridge 0.14.0), and Git
 
-The repository does not include VRoid. See [Installation](docs/installation.md) for the hash and the setup rules.
+Details: [Installation](docs/installation.md).
 
 ## Quick start
 
@@ -69,31 +69,32 @@ Then ask your AI client to:
 2. Edit with **set_face_params**, **set_body_params**, **set_parameters** or the preset tools.
 3. Check the result with **capture_review**, then **save_as** a new .vroid file.
 
-Full workflow and examples: [Usage](docs/usage.md).
+Next: [Usage](docs/usage.md).
 
 ## Troubleshooting
 
-- The first tool call starts VRoid. If your client allows it, set a longer first-call timeout, such as 120 seconds.
-- Only one MCP server can own a lab at a time. Create separate labs for Codex and Claude Code.
-- If VRoid runs as administrator, the MCP client must too; otherwise attaching fails with PermissionError.
-- A VRoid you attached to pauses its main loop while unfocused. If it stops responding, click the VRoid window once and call again.
+- **The first call is slow or times out**: the first tool call starts VRoid. If your client allows it, set a longer first-call timeout, such as 120 seconds.
+- **"Another MCP process already owns this lab"**: only one MCP server can own a lab at a time. Create separate labs for Codex and Claude Code.
+- **PermissionError when attaching**: VRoid runs as administrator, so the MCP client must run as administrator too.
+- **"VRoid main thread did not respond"**: a VRoid you attached to pauses its main loop while unfocused. Click the VRoid window once and call again.
 
 More: [Troubleshooting](docs/troubleshooting.md).
 
 ## Documentation
 
-- [Documentation index](docs/README.md)
-- [Installation](docs/installation.md)
-- [Usage](docs/usage.md)
-- [Working with your own VRoid](docs/own-vroid.md)
-- [Parts, custom items and VRM export](docs/parts-and-export.md)
-- [Visual review](docs/visual-review.md)
-- [Tool reference](docs/tools.md)
-- [Behavior and limitations](docs/limitations.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Development and tests](docs/development.md)
-- [Changelog](CHANGELOG.md)
+- [Documentation index](docs/README.md): all pages, and where to start
+- [Installation](docs/installation.md): compatibility, SHA-256 check, venv setup, preparing a lab, MCP connection, command-line options
+- [Usage](docs/usage.md): full list of what you can edit, editing workflow, colors example, hair, accessories, photo preview, height
+- [Working with your own VRoid](docs/own-vroid.md): attach_open_vroid, start-screen models, detaching, administrator rights
+- [Parts, custom items and VRM export](docs/parts-and-export.md): list_parts, replace_part, save_custom_items, rebuilding older characters, export_vrm
+- [Visual review](docs/visual-review.md): screenshot views, capture_review, before/after comparison and its limits
+- [Tool reference](docs/tools.md): all 42 tools with parameters and defaults, parameter domains and value formats
+- [Behavior and limitations](docs/limitations.md): batches, timeouts, isolation, out-of-scope features, validation status
+- [Troubleshooting](docs/troubleshooting.md): error messages and what to do
+- [Development and tests](docs/development.md): unit tests, live acceptance scripts, validation history, source layout
+- [Changelog](CHANGELOG.md): release notes (current version 0.4.0)
 
 ## License
 
-MIT. See [LICENSE](LICENSE). VRoid Studio is not included and is covered by its own terms.
+MIT. See [LICENSE](LICENSE).
+- VRoid Studio is not included and is covered by its own terms.

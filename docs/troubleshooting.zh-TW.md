@@ -1,6 +1,6 @@
-# 疑難排解
-
 [English](troubleshooting.md) | **繁體中文** · [文件索引](README.zh-TW.md)
+
+# 疑難排解
 
 ## 常見情況
 

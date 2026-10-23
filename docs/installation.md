@@ -1,6 +1,6 @@
-# Installation
-
 **English** | [繁體中文](installation.zh-TW.md) · [Documentation index](README.md)
+
+# Installation
 
 ## Compatibility
 

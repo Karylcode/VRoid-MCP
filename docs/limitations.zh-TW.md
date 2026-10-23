@@ -1,6 +1,6 @@
-# 行為與限制
-
 [English](limitations.md) | **繁體中文** · [文件索引](README.zh-TW.md)
+
+# 行為與限制
 
 ## 行為
 

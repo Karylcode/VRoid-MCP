@@ -1,6 +1,6 @@
-# Changelog
-
 **English** | [繁體中文](CHANGELOG.zh-TW.md) · [README](README.md)
+
+# Changelog
 
 ## Unreleased
 

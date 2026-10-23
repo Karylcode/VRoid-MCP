@@ -1,6 +1,6 @@
-# 更新紀錄
-
 [English](CHANGELOG.md) | **繁體中文** · [README](README.zh-TW.md)
+
+# 更新紀錄
 
 ## 尚未發布
 
